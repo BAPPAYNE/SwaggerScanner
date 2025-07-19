@@ -12,27 +12,23 @@ def load_credentials(args):
     Loads credentials, prioritizing command-line args over the config file.
     Returns a tuple: (api_key, cse_id)
     """
-    # 1. Prioritize command-line arguments (already clean from argparse)
     if args.api_key and args.cse_id:
         print("[*] Using API credentials provided via command-line flags.")
         return args.api_key, args.cse_id
     
-    # 2. Fallback to config.yaml
     try:
         with open('config.yaml', 'r') as f:
             config = yaml.safe_load(f)
             if config and 'google_api' in config:
-                # --- THE FIX IS HERE: Add .strip() to clean the credentials ---
                 api_key = config['google_api'].get('api_key')
                 cse_id = config['google_api'].get('cse_id')
                 
                 if api_key and cse_id:
                     print("[*] Loaded API credentials from config.yaml.")
-                    # Return the cleaned credentials
                     return api_key.strip(), cse_id.strip()
 
     except FileNotFoundError:
-        pass # This is handled later
+        pass
     except (yaml.YAMLError, AttributeError) as e:
         print(f"[ERROR] Could not parse config.yaml. Please check its format. Details: {e}", file=sys.stderr)
         return None, None
@@ -70,7 +66,8 @@ def main():
     parser.add_argument("-k", "--api-key", type=str, help="Your Google API Key (overrides config.yaml).")
     parser.add_argument("-c", "--cse-id", type=str, help="Your Programmable Search Engine ID (overrides config.yaml).")
     parser.add_argument("-u", "--domain", type=str, help="The target domain.", default="")
-    parser.add_argument("-l", "--limit", type=str, help="Total results per dork (Max 100). Default 10.", default="10")
+    # --- CHANGE IS HERE: Updated default value and help text ---
+    parser.add_argument("-l", "--limit", type=str, help="Total results per dork (Default: 100, which is the API maximum).", default="100")
     parser.add_argument("-o", "--output", type=str, help="Output file.", required=True)
     parser.add_argument("-d", "--dork", type=str, help="A single custom dork string.")
     parser.add_argument("--dork-file", type=str, help="File with a list of dorks.")
@@ -90,8 +87,8 @@ def main():
         sys.exit(1)
 
     target_site = args.domain.strip()
-    limit = int(args.limit) if args.limit.strip().isdigit() else 10
-    limit = min(limit, 100) # API max is 100
+    limit = int(args.limit) if args.limit.strip().isdigit() else 100 # Default to 100 if input is invalid
+    limit = min(limit, 100) # Ensure the limit never exceeds the API's max of 100
 
     dork_templates = get_dorks(args)
     final_dorks = [dork.format(domain=target_site) if '{domain}' in dork else (f"{dork} site:{target_site}" if target_site else dork) for dork in dork_templates if '{domain}' not in dork or target_site]
@@ -110,18 +107,21 @@ def main():
             try:
                 found_items = []
                 start_index = 1
-                while start_index < limit:
-                    num_to_get = min(10, limit - start_index + 1)
-                    res = service.cse().list(q=dork, cx=cse_id, num=num_to_get, start=start_index).execute() 
-                    
+                while len(found_items) < limit:
+                    num_to_get = min(10, limit - len(found_items))
+                    res = service.cse().list(q=dork, cx=cse_id, num=num_to_get, start=start_index).execute()
+
                     if 'items' in res:
                         found_items.extend(res['items'])
-                    
-                    if 'nextPage' in res.get('queries', {}).get('request', [{}])[0]:
-                        start_index += 10
                     else:
-                        break # No more pages
-                
+                        break
+
+                    queries = res.get('queries', {})
+                    if 'nextPage' in queries:
+                        start_index = queries['nextPage'][0]['startIndex']
+                    else:
+                        break
+
                 if found_items:
                     for item in found_items:
                         link = item.get('link')
@@ -140,7 +140,7 @@ def main():
                     break 
             
             f.write("\n")
-            time.sleep(1) # Be polite to the API
+            time.sleep(1)
 
 if __name__ == "__main__":
     main()

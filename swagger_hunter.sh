@@ -38,7 +38,8 @@ usage() {
     echo -e "\n${GREEN}DORKS & OUTPUT:${NC}"
     echo "  -d, --dork <dork>         Use a single custom Google dork."
     echo "  --dork-file <filepath>    Use a file with a list of custom dorks."
-    echo "  -l, --limit <number>        Limit results per dork (Max 100, Default 10)."
+    # --- CHANGE IS HERE: Updated help text for the limit ---
+    echo "  -l, --limit <number>        Limit results per dork (Default: 100, which is the API max)."
     echo "  -o, --output <filepath>     Specify the output file (Default: swagger_results_api.txt)."
     echo "  -h, --help                  Display this help message."
     exit 1
@@ -49,7 +50,6 @@ check_dependencies() {
     if ! command -v python3 &> /dev/null; then echo -e "${RED}[-] Python 3 is not installed.${NC}"; exit 1; fi
     python3 -c "import googleapiclient" &> /dev/null
     if [ $? -ne 0 ]; then echo -e "${RED}[-] Google API Client not found. Run: pip install google-api-python-client${NC}"; exit 1; fi
-    # Add dependency check for PyYAML
     python3 -c "import yaml" &> /dev/null
     if [ $? -ne 0 ]; then echo -e "${RED}[-] PyYAML library not found. Run: pip3 install pyyaml${NC}"; exit 1; fi
     echo -e "${GREEN}[+] Dependencies are satisfied.${NC}"
@@ -77,7 +77,6 @@ run_scan_cli() {
     if [ -n "$URL" ]; then
         CLEANED_URL=$(clean_domain "$URL")
         echo -e "${YELLOW}[*] Scanning single target: ${CLEANED_URL}${NC}"
-        # Execute the python script, expanding the array safely
         python3 google_dorker.py --domain "$CLEANED_URL" "${python_args[@]}"
     elif [ -n "$FILE" ]; then
         echo -e "${YELLOW}[*] Scanning targets from file: ${FILE}${NC}"
@@ -85,13 +84,11 @@ run_scan_cli() {
             if [ -n "$domain" ]; then
                 CLEANED_DOMAIN=$(clean_domain "$domain")
                 echo -e "\n${BLUE}--- Scanning: $CLEANED_DOMAIN ---${NC}"
-                # Execute for each domain, adding --append
                 python3 google_dorker.py --domain "$CLEANED_DOMAIN" "${python_args[@]}" --append
             fi
         done < "$FILE"
     else
         echo -e "${YELLOW}[*] Running a broad scan (no target specified)${NC}"
-        # Execute without a domain
         python3 google_dorker.py "${python_args[@]}"
     fi
     echo -e "\n${GREEN}[+] Scan complete. Results saved to '${OUTPUT:-swagger_results_api.txt}'.${NC}"
@@ -100,20 +97,17 @@ run_scan_cli() {
 run_scan_interactive() {
     display_banner
     echo -e "${YELLOW}Credentials will be loaded from 'config.yaml'.${NC}"
-    echo -e "\n${YELLOW}--- Scan Options ---${NC}"
-    read -p "Enter target URL/Domain (or press Enter for broad scan): " target_input
-    if [ -z "$api_key" ] || [ -z "$cse_id" ]; then
-        echo -e "${RED}API Key and CSE ID cannot be empty.${NC}"; return
-    fi
     
     echo -e "\n${YELLOW}--- Scan Options ---${NC}"
     read -p "Enter target URL/Domain (or press Enter for broad scan): " target_input
-    read -p "Enter result limit per dork [Default: 10]: " result_limit
+    # --- CHANGE IS HERE: Updated interactive prompt text ---
+    read -p "Enter result limit per dork [Default: 100]: " result_limit
     output_file="swagger_interactive_results.txt"
     CLEANED_TARGET=$(clean_domain "$target_input")
     
     echo -e "${YELLOW}[*] Starting scan... Results will be saved to '${output_file}'${NC}"
     
+    # Pass the limit to the python script, which will handle the default if input is empty
     python3 google_dorker.py --domain "${CLEANED_TARGET}" --limit "${result_limit}" --output "${output_file}"
     
     echo -e "\n${GREEN}[+] Scan complete.${NC}"
@@ -136,7 +130,6 @@ OUTPUT="swagger_results_api.txt"
 API_KEY=""
 CSE_ID=""
 
-# Parse Command-Line Arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -k|--api-key) API_KEY="$2"; shift ;;
