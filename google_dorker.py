@@ -1,11 +1,46 @@
-import googlesearch
+# google_dorker.py
 import time
 import argparse
 import sys
+import yaml
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+
+def load_credentials(args):
+    """
+    Loads credentials, prioritizing command-line args over the config file.
+    Returns a tuple: (api_key, cse_id)
+    """
+    # 1. Prioritize command-line arguments (already clean from argparse)
+    if args.api_key and args.cse_id:
+        print("[*] Using API credentials provided via command-line flags.")
+        return args.api_key, args.cse_id
+    
+    # 2. Fallback to config.yaml
+    try:
+        with open('config.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+            if config and 'google_api' in config:
+                # --- THE FIX IS HERE: Add .strip() to clean the credentials ---
+                api_key = config['google_api'].get('api_key')
+                cse_id = config['google_api'].get('cse_id')
+                
+                if api_key and cse_id:
+                    print("[*] Loaded API credentials from config.yaml.")
+                    # Return the cleaned credentials
+                    return api_key.strip(), cse_id.strip()
+
+    except FileNotFoundError:
+        pass # This is handled later
+    except (yaml.YAMLError, AttributeError) as e:
+        print(f"[ERROR] Could not parse config.yaml. Please check its format. Details: {e}", file=sys.stderr)
+        return None, None
+        
+    return None, None
 
 def get_dorks(args):
     """Determines which dorks to use based on user input."""
-    # Priority 1: Custom dork file
     if args.dork_file:
         try:
             with open(args.dork_file, 'r') as f:
@@ -16,16 +51,14 @@ def get_dorks(args):
             print(f"[ERROR] Dork file not found: {args.dork_file}", file=sys.stderr)
             sys.exit(1)
 
-    # Priority 2: Single custom dork
     if args.dork:
         print(f"[*] Using custom dork: {args.dork}")
         return [args.dork]
 
-    # Priority 3: Built-in dorks
     print("[*] Using built-in dorks.")
     return [
         'inurl:"/swagger-ui/index.html"',
-        'intitle:"Swagger UI" (inurl:"/swagger-ui/" OR inurl:"/swagger/" OR inurl:"/api-docs/" OR inurl:"/v2/api-docs" OR inurl:"/v3/api-docs")',
+        'intitle:"Swagger UI" (inurl:"/swagger-ui/" OR inurl:"/swagger/" OR inurl:"/api-docs/" OR inurl:"/v2/api-docs")',
         'site:*.{domain} -www',
         'intext:"Swagger UI" intitle:"Swagger UI" site:{domain}',
         'site:{domain} inurl:(swagger.json OR swagger.yaml)',
@@ -33,78 +66,81 @@ def get_dorks(args):
     ]
 
 def main():
-    parser = argparse.ArgumentParser(description="Google Dorking backend for Swagger Hunter.")
+    parser = argparse.ArgumentParser(description="Google Dorking backend for Swagger Hunter (API Edition).")
+    parser.add_argument("-k", "--api-key", type=str, help="Your Google API Key (overrides config.yaml).")
+    parser.add_argument("-c", "--cse-id", type=str, help="Your Programmable Search Engine ID (overrides config.yaml).")
     parser.add_argument("-u", "--domain", type=str, help="The target domain.", default="")
-    parser.add_argument("-l", "--limit", type=str, help="Number of results per dork.", default="")
+    parser.add_argument("-l", "--limit", type=str, help="Total results per dork (Max 100). Default 10.", default="10")
     parser.add_argument("-o", "--output", type=str, help="Output file.", required=True)
     parser.add_argument("-d", "--dork", type=str, help="A single custom dork string.")
     parser.add_argument("--dork-file", type=str, help="File with a list of dorks.")
-    parser.add_argument("--append", action="store_true", help="Append to the output file instead of overwriting.")
+    parser.add_argument("--append", action="store_true", help="Append to the output file.")
     args = parser.parse_args()
+    api_key, cse_id = load_credentials(args)
 
-    target_site = args.domain.strip()
-    limit = int(args.limit.strip()) if args.limit.strip().isdigit() else None
-    
-    # Get the list of dorks to run
-    dork_templates = get_dorks(args)
-
-    # Prepare final dorks by formatting them with the domain if provided
-    final_dorks = []
-    for dork in dork_templates:
-        # Replace {domain} placeholder or append site: filter
-        if '{domain}' in dork and target_site:
-            final_dorks.append(dork.format(domain=target_site))
-        elif target_site:
-            final_dorks.append(f"{dork} site:{target_site}")
-        else:
-            # If no domain, don't add dorks that require one
-            if '{domain}' not in dork:
-                final_dorks.append(dork)
-    
-    final_dorks = list(dict.fromkeys(final_dorks)) # Remove duplicates
-
-    if not final_dorks:
-        print("[!] No applicable dorks to run for the given configuration.", file=sys.stderr)
-        return
-
-    # Determine file mode
-    file_mode = "a" if args.append else "w"
+    if not api_key or not cse_id:
+        print("[ERROR] Credentials not found.", file=sys.stderr)
+        print("Please either create a valid 'config.yaml' file or provide credentials using the -k and -c flags.", file=sys.stderr)
+        sys.exit(1)
     
     try:
-        with open(args.output, file_mode, encoding='utf-8') as f:
-            if file_mode == 'w' or f.tell() == 0:
-                f.write(f"# Swagger Hunter Results\n")
-            
-            f.write(f"\n# === Target: {'All Websites' if not target_site else target_site} ===\n")
-
-            for i, dork in enumerate(final_dorks):
-                print(f"\n[*] Running Dork {i+1}/{len(final_dorks)}: {dork}")
-                f.write(f"--- Dork: {dork} ---\n")
-                
-                try:
-                    search_results = googlesearch.search(dork, stop=limit, pause=4.0)
-                    found_results = False
-                    for result in search_results:
-                        print(result)
-                        f.write(result + "\n")
-                        found_results = True
-                    if not found_results:
-                        print("No results found.")
-                        f.write("No results found.\n")
-
-                except Exception as e:
-                    error_message = f"[ERROR] Could not perform search: {e}"
-                    print(error_message, file=sys.stderr)
-                    f.write(f"{error_message}\n")
-                    if "429" in str(e):
-                        print("[!] Rate-limited by Google. Pausing for 60 seconds...", file=sys.stderr)
-                        time.sleep(60)
-                
-                f.write("\n")
-                time.sleep(5)
-
+        service = build("customsearch", "v1", developerKey=api_key)
     except Exception as e:
-        print(f"[CRITICAL] A fatal error occurred: {e}", file=sys.stderr)
+        print(f"[CRITICAL] Failed to build Google API service. Check API key and dependencies. Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    target_site = args.domain.strip()
+    limit = int(args.limit) if args.limit.strip().isdigit() else 10
+    limit = min(limit, 100) # API max is 100
+
+    dork_templates = get_dorks(args)
+    final_dorks = [dork.format(domain=target_site) if '{domain}' in dork else (f"{dork} site:{target_site}" if target_site else dork) for dork in dork_templates if '{domain}' not in dork or target_site]
+    final_dorks = list(dict.fromkeys(final_dorks))
+
+    file_mode = "a" if args.append else "w"
+    
+    with open(args.output, file_mode, encoding='utf-8') as f:
+        if file_mode == 'w' or f.tell() == 0: f.write(f"# Swagger Hunter Results (API) | by BAPPAYNE\n")
+        f.write(f"\n# === Target: {'All Websites' if not target_site else target_site} ===\n")
+
+        for i, dork in enumerate(final_dorks):
+            print(f"\n[*] Running Dork {i+1}/{len(final_dorks)}: {dork}")
+            f.write(f"--- Dork: {dork} ---\n")
+            
+            try:
+                found_items = []
+                start_index = 1
+                while start_index < limit:
+                    num_to_get = min(10, limit - start_index + 1)
+                    res = service.cse().list(q=dork, cx=cse_id, num=num_to_get, start=start_index).execute() 
+                    
+                    if 'items' in res:
+                        found_items.extend(res['items'])
+                    
+                    if 'nextPage' in res.get('queries', {}).get('request', [{}])[0]:
+                        start_index += 10
+                    else:
+                        break # No more pages
+                
+                if found_items:
+                    for item in found_items:
+                        link = item.get('link')
+                        print(link)
+                        f.write(f"{link}\n")
+                else:
+                    print("No results found.")
+                    f.write("No results found.\n")
+
+            except HttpError as e:
+                error_message = f"[ERROR] API error occurred: {e.content.decode('utf-8')}"
+                print(error_message, file=sys.stderr)
+                f.write(f"{error_message}\n")
+                if 'quota' in str(e).lower():
+                    print("[!] Daily quota likely exceeded. Aborting.", file=sys.stderr)
+                    break 
+            
+            f.write("\n")
+            time.sleep(1) # Be polite to the API
 
 if __name__ == "__main__":
     main()

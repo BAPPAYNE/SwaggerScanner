@@ -1,0 +1,30 @@
+# Swagger Hunter Results (API) | by BAPPAYNE
+
+# === Target: tesla.com ===
+--- Dork: inurl:"/swagger-ui/index.html" site:tesla.com ---
+No results found.
+
+--- Dork: intitle:"Swagger UI" (inurl:"/swagger-ui/" OR inurl:"/swagger/" OR inurl:"/api-docs/" OR inurl:"/v2/api-docs") site:tesla.com ---
+No results found.
+
+--- Dork: site:*.tesla.com -www ---
+https://shop.tesla.com/de_at/orders
+https://shop.tesla.com/product/O67FE35VIFJL7C0UVP7U
+https://shop.tesla.com/ja_jp/orders
+https://shop.tesla.com/en_gb/category/lifestyle
+https://shop.tesla.com/ro_ro?redirect=no
+https://shop.tesla.com/fr_be/category/lifestyle
+https://shop.tesla.com/en_au/category/parts
+https://shop.tesla.com/product/cybertruck-jumpseat
+https://shop.tesla.com/de_de/category/bekleidung
+https://shop.tesla.com/es_es/product/portabicicletas
+
+--- Dork: intext:"Swagger UI" intitle:"Swagger UI" site:tesla.com ---
+No results found.
+
+--- Dork: site:tesla.com inurl:(swagger.json OR swagger.yaml) ---
+No results found.
+
+--- Dork: (inurl:api OR inurl:apis OR inurl:graphql OR inurl:swagger OR inurl:v1 OR inurl:v2) (filetype:json OR filetype:yaml) site:tesla.com ---
+No results found.
+
